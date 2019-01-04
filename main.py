@@ -16,10 +16,17 @@ from nsml import DATASET_PATH
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Activation
-from keras.layers import Conv2D, MaxPooling2D
+from keras.layers import Conv2D, MaxPooling2D, GlobalAveragePooling2D
 from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
 from data_loader import train_data_loader
+
+from keras.applications import MobileNet
+from keras.preprocessing import image
+from keras.applications.mobilenet import preprocess_input
+from keras.preprocessing.image import ImageDataGenerator
+from keras.models import Model
+from keras.optimizers import Adam
 
 
 def bind_model(model):
@@ -49,10 +56,12 @@ def bind_model(model):
         reference_img = np.asarray(reference_img)
 
         query_img = query_img.astype('float32')
-        query_img /= 255
+        query_img /= 255 # To normalize to [0, 1]
         reference_img = reference_img.astype('float32')
         reference_img /= 255
 
+        # An image is converted to a feature vector,
+        # which is the last layer after running an input through the network (excluding the softmax).
         get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-2].output])
 
         print('inference start')
@@ -75,6 +84,7 @@ def bind_model(model):
         reference_vecs = l2_normalize(reference_vecs)
 
         # Calculate cosine similarity
+        # which is a similarity metric between images / vectors
         sim_matrix = np.dot(query_vecs, reference_vecs.T)
 
         retrieval_results = {}
@@ -103,6 +113,8 @@ def l2_normalize(v):
 
 
 # data preprocess
+# resizes all the images (query and reference)
+# queries, db are paths; _img appended are the processed image files
 def preprocess(queries, db):
     query_img = []
     reference_img = []
@@ -127,7 +139,7 @@ if __name__ == '__main__':
     args = argparse.ArgumentParser()
 
     # hyperparameters
-    args.add_argument('--epochs', type=int, default=5)
+    args.add_argument('--epochs', type=int, default=10)
     args.add_argument('--batch_size', type=int, default=128)
 
     # DONOTCHANGE: They are reserved for nsml
@@ -142,29 +154,45 @@ if __name__ == '__main__':
     num_classes = 1000
     input_shape = (224, 224, 3)  # input image shape
 
+    # Pretrained model
+    base_model = MobileNet(weights='imagenet', include_top=False)
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+    x = Dense(1024, activation='relu')(x)
+    x = Dense(1024, activation='relu')(x)
+    x = Dense(512, activation='relu')(x)
+    preds = Dense(num_classes, activation='softmax')(x)
+
     """ Model """
-    model = Sequential()
-    model.add(Conv2D(32, (3, 3), padding='same', input_shape=input_shape))
-    model.add(Activation('relu'))
-    model.add(Conv2D(32, (3, 3)))
-    model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.25))
+    # model = Sequential()
+    # model.add(Conv2D(32, (3, 3), padding='same', input_shape=input_shape))
+    # model.add(Activation('relu'))
+    # model.add(Conv2D(32, (3, 3)))
+    # model.add(Activation('relu'))
+    # model.add(MaxPooling2D(pool_size=(2, 2)))
+    # model.add(Dropout(0.25))
 
-    model.add(Conv2D(64, (3, 3), padding='same'))
-    model.add(Activation('relu'))
-    model.add(Conv2D(64, (3, 3)))
-    model.add(Activation('relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.25))
+    # model.add(Conv2D(64, (3, 3), padding='same'))
+    # model.add(Activation('relu'))
+    # model.add(Conv2D(64, (3, 3)))
+    # model.add(Activation('relu'))
+    # model.add(MaxPooling2D(pool_size=(2, 2)))
+    # model.add(Dropout(0.25))
 
-    model.add(Flatten())
-    model.add(Dense(512))
-    model.add(Activation('relu'))
-    model.add(Dropout(0.5))
-    model.add(Dense(num_classes))
-    model.add(Activation('softmax'))
+    # model.add(Flatten())
+    # model.add(Dense(512))
+    # model.add(Activation('relu'))
+    # model.add(Dropout(0.5))
+    # model.add(Dense(num_classes))
+    # model.add(Activation('softmax'))
+
+    model = Model(inputs=base_model.input, outputs=preds)
     model.summary()
+
+    for layer in model.layers[:20]:
+        layer.trainable = False # Don't train initial pretrained weights
+    for layer in model.layers[20:]:
+        layer.trainable = True # Train last few layers
 
     bind_model(model)
 
