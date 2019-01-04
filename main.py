@@ -16,17 +16,13 @@ from nsml import DATASET_PATH
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Activation
-from keras.layers import Conv2D, MaxPooling2D, GlobalAveragePooling2D
+from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D
 from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
 from data_loader import train_data_loader
 
 from keras.applications import MobileNet
-from keras.preprocessing import image
-from keras.applications.mobilenet import preprocess_input
-from keras.preprocessing.image import ImageDataGenerator
 from keras.models import Model
-from keras.optimizers import Adam
 
 
 def bind_model(model):
@@ -156,43 +152,18 @@ if __name__ == '__main__':
 
     # Pretrained model
     base_model = MobileNet(weights='imagenet', include_top=False)
+    base_model.summary()
+
     x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-    x = Dense(1024, activation='relu')(x)
-    x = Dense(1024, activation='relu')(x)
-    x = Dense(512, activation='relu')(x)
+    x = GlobalMaxPooling2D()(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
-    """ Model """
-    # model = Sequential()
-    # model.add(Conv2D(32, (3, 3), padding='same', input_shape=input_shape))
-    # model.add(Activation('relu'))
-    # model.add(Conv2D(32, (3, 3)))
-    # model.add(Activation('relu'))
-    # model.add(MaxPooling2D(pool_size=(2, 2)))
-    # model.add(Dropout(0.25))
-
-    # model.add(Conv2D(64, (3, 3), padding='same'))
-    # model.add(Activation('relu'))
-    # model.add(Conv2D(64, (3, 3)))
-    # model.add(Activation('relu'))
-    # model.add(MaxPooling2D(pool_size=(2, 2)))
-    # model.add(Dropout(0.25))
-
-    # model.add(Flatten())
-    # model.add(Dense(512))
-    # model.add(Activation('relu'))
-    # model.add(Dropout(0.5))
-    # model.add(Dense(num_classes))
-    # model.add(Activation('softmax'))
-
     model = Model(inputs=base_model.input, outputs=preds)
-    model.summary()
 
-    for layer in model.layers[:20]:
+    for layer in model.layers[:-1]:
         layer.trainable = False # Don't train initial pretrained weights
-    for layer in model.layers[20:]:
-        layer.trainable = True # Train last few layers
+
+    model.summary()
 
     bind_model(model)
 
