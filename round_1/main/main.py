@@ -16,13 +16,15 @@ from nsml import DATASET_PATH
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Activation
-from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D
+from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D, GlobalAveragePooling2D
 from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
 from data_loader import train_data_loader
 
 from keras.applications import MobileNet
+from keras.applications import ResNet50
 from keras.models import Model
+from keras.optimizers import Adam
 
 
 def bind_model(model):
@@ -151,11 +153,13 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', include_top=False)
+    # base_model = MobileNet(weights='imagenet', include_top=False)
+    base_model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)
     base_model.summary()
 
-    x = base_model.get_layer(name='conv_pw_12_relu').output
-    x = GlobalMaxPooling2D()(x)
+    # x = base_model.get_layer(name='conv_pw_12_relu').output
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=preds)
@@ -175,7 +179,8 @@ if __name__ == '__main__':
         bTrainmode = True
 
         """ Initiate RMSprop optimizer """
-        opt = keras.optimizers.rmsprop(lr=0.00045, decay=1e-6)
+        # opt = keras.optimizers.rmsprop(lr=0.00045, decay=1e-6)
+        opt = Adam()
         model.compile(loss='categorical_crossentropy',
                       optimizer=opt,
                       metrics=['accuracy'])
