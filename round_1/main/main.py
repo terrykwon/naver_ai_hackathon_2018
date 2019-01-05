@@ -154,13 +154,13 @@ if __name__ == '__main__':
     base_model = MobileNet(weights='imagenet', include_top=False)
     base_model.summary()
 
-    x = base_model.output
+    x = base_model.get_layer(name='conv_pw_9_relu').output
     x = GlobalMaxPooling2D()(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=preds)
 
-    for layer in model.layers[:-1]:
+    for layer in model.layers[:-8]:
         layer.trainable = False # Don't train initial pretrained weights
 
     model.summary()
