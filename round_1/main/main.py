@@ -15,7 +15,7 @@ import numpy as np
 from nsml import DATASET_PATH
 import keras
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, Flatten, Activation
+from keras.layers import Dense, Dropout, Flatten, Activation, LeakyReLU
 from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D
 from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
@@ -155,7 +155,8 @@ if __name__ == '__main__':
     base_model.summary()
 
     x = base_model.output
-    x = Dense(2*num_classes, activation='relu')(x)
+    x = Dense(2*num_classes, activation=None)(x)
+    x = LeakyReLU(alpha=0.3)(x)
     x = GlobalMaxPooling2D()(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
