@@ -21,7 +21,7 @@ from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
 from data_loader import train_data_loader
 
-from keras.applications import MobileNet
+from keras.applications import MobileNet, vgg16
 from keras.models import Model
 
 
@@ -151,10 +151,11 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', include_top=False)
+    base_model = vgg16.VGG16(weights='imagenet', include_top=False)
     base_model.summary()
 
-    x = base_model.get_layer(name='conv_pw_9_relu').output
+    x = base_model.output
+    x = Dense(2*num_classes, activation='relu')(x)
     x = GlobalMaxPooling2D()(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
