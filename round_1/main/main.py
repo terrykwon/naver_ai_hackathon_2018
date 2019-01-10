@@ -21,7 +21,7 @@ from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
 from data_loader import train_data_loader
 
-from keras.applications import MobileNet, vgg16, nasnet, mobilenet_v2
+from keras.applications import MobileNet, vgg16, nasnet, mobilenet_v2, resnet50
 from keras.models import Model
 
 
@@ -151,12 +151,13 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', include_top=False)
+    base_model = resnet50.ResNet50(weights='imagenet', include_top=False, pooling='avg')
     base_model.summary()
 
     x = base_model.output
-    x = Dense(2*num_classes, activation=None)(x)
-    x = LeakyReLU(alpha=0.3)(x)
+    #x = Flatten()(x)
+    x = Dense(512, activation='relu')(x)
+    #x = LeakyReLU(alpha=0.3)(x)
     x = GlobalMaxPooling2D()(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
