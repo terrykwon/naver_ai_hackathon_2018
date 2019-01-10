@@ -16,7 +16,7 @@ from nsml import DATASET_PATH
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Activation, LeakyReLU
-from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D
+from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D, GlobalAveragePooling2D
 from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
 from data_loader import train_data_loader
@@ -151,14 +151,16 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    base_model = resnet50.ResNet50(weights='imagenet', include_top=False, pooling='avg')
+    base_model = MobileNet(weights='imagenet', include_top=False)
     base_model.summary()
 
     x = base_model.output
+    x = GlobalAveragePooling2D()(x)
     #x = Flatten()(x)
-    x = Dense(512, activation='relu')(x)
+    x = Dropout(0.5)(x)
+    x = Dense(1024, activation='relu')(x)
     #x = LeakyReLU(alpha=0.3)(x)
-    x = GlobalMaxPooling2D()(x)
+    #x = GlobalMaxPooling2D()(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=preds)
