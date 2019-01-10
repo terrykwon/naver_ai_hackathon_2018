@@ -151,7 +151,7 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    base_model = mobilenet_v2.MobileNetV2(weights='imagenet', include_top=False)
+    base_model = MobileNet(weights='imagenet', include_top=False)
     base_model.summary()
 
     x = base_model.output
