@@ -160,14 +160,14 @@ if __name__ == '__main__':
     #x = Dropout(0.5)(x)
     #x = LeakyReLU(alpha=0.3)(x)
     #x = Flatten()(x)
-    x = Dense(4096, activation='relu')(x)
-    x = Dense(4096, activation='relu')(x)
+    x = Dense(2000, activation='relu')(x)
     x = GlobalMaxPooling2D()(x)
+    x = Dense(1000, activation='relu')(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=preds)
 
-    for layer in model.layers[:-8]:
+    for layer in model.layers[:-10]:
         layer.trainable = False # Don't train initial pretrained weights
 
     model.summary()
