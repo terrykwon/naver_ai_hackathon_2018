@@ -47,9 +47,21 @@ def bind_model(model):
               format(len(queries), len(query_img), len(references), len(reference_img)))
 
         queries = np.asarray(queries)
+        #print(queries) ; 
+        print("===========queries shape===========")
+        print(queries.shape)
         query_img = np.asarray(query_img)
+        #print(query_img) ; 
+        print("===========query_img shape===========")
+        print(query_img.shape)
         references = np.asarray(references)
+        #print(reference) ; 
+        print("===========reference shape===========")
+        print(references.shape)
         reference_img = np.asarray(reference_img)
+        #print(reference_img) ; 
+        print("===========reference shape===========")
+        print(reference_img.shape)
 
         query_img = query_img.astype('float32')
         query_img /= 255 # To normalize to [0, 1]
@@ -64,7 +76,9 @@ def bind_model(model):
 
         # inference
         query_vecs = get_feature_layer([query_img, 0])[0]
-
+        #print(query_vecs) ; 
+        print("===========query_vecs shape===========")
+        print(query_vecs.shape)
         # caching db output, db inference
         db_output = './db_infer.pkl'
         if os.path.exists(db_output):
@@ -151,7 +165,7 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', include_top=False)
+    base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False)
     base_model.summary()
 
     x = base_model.output
@@ -160,9 +174,10 @@ if __name__ == '__main__':
     #x = Dropout(0.5)(x)
     #x = LeakyReLU(alpha=0.3)(x)
     #x = Flatten()(x)
-    x = Dense(2000, activation='relu')(x)
+    x = Dense(3000, activation='relu')(x)
     x = GlobalMaxPooling2D()(x)
-    x = Dense(1000, activation='relu')(x)
+    #x = Dense(2000, activation='relu')(x)
+    #x = Dense(1000, activation='relu')(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=preds)
