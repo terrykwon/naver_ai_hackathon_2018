@@ -12,6 +12,9 @@ import pickle
 import nsml
 import numpy as np
 
+from skimage.measure import block_reduce
+from sklearn.decomposition import PCA
+
 from nsml import DATASET_PATH
 import keras
 from keras.models import Sequential
@@ -48,20 +51,20 @@ def bind_model(model):
 
         queries = np.asarray(queries)
         #print(queries) ; 
-        print("===========queries shape===========")
-        print(queries.shape)
+        #print("===========queries shape===========")
+        #print(queries.shape)
         query_img = np.asarray(query_img)
         #print(query_img) ; 
-        print("===========query_img shape===========")
-        print(query_img.shape)
+        #print("===========query_img shape===========")
+        #print(query_img.shape)
         references = np.asarray(references)
         #print(reference) ; 
-        print("===========reference shape===========")
-        print(references.shape)
+        #print("===========reference shape===========")
+        #print(references.shape)
         reference_img = np.asarray(reference_img)
         #print(reference_img) ; 
-        print("===========reference shape===========")
-        print(reference_img.shape)
+        #print("===========reference shape===========")
+        #print(reference_img.shape)
 
         query_img = query_img.astype('float32')
         query_img /= 255 # To normalize to [0, 1]
@@ -70,15 +73,15 @@ def bind_model(model):
 
         # An image is converted to a feature vector,
         # which is the last layer after running an input through the network (excluding the softmax).
-        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-2].output])
+        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-3].output])
 
         print('inference start')
 
         # inference
         query_vecs = get_feature_layer([query_img, 0])[0]
         #print(query_vecs) ; 
-        print("===========query_vecs shape===========")
-        print(query_vecs.shape)
+        #print("===========query_vecs shape===========")
+        #print(query_vecs.shape)
         # caching db output, db inference
         db_output = './db_infer.pkl'
         if os.path.exists(db_output):
@@ -89,9 +92,21 @@ def bind_model(model):
             with open(db_output, 'wb') as f:
                 pickle.dump(reference_vecs, f)
 
-        # l2 normalization
-        query_vecs = l2_normalize(query_vecs)
-        reference_vecs = l2_normalize(reference_vecs)
+        query_vecs = query_vecs.reshape(query_vecs.shape[0],-1) # Flattens 1×1 components  
+        query_len = query_vecs.shape[0] 
+        reference_vecs = reference_vecs.reshape(reference_vecs.shape[0],-1)
+        reference_len = reference_vecs.shape[0]
+        combined = np.concatenate((query_vecs, reference_vecs), axis = 0)
+        
+        # l2 normalization & pca whitening
+        combined = l2_normalize(combined)
+        combined_whitened = pca_whiten(combined)
+        combined_final = l2_normalize(combined_whitened)
+        
+        query_vecs = combined[:query_len,]
+        reference_vecs = combined[query_len:,]
+        #query_vecs = l2_normalize(query_vecs)
+        #reference_vecs = l2_normalize(reference_vecs)
 
         # Calculate cosine similarity
         # which is a similarity metric between images / vectors
@@ -121,6 +136,18 @@ def l2_normalize(v):
         return v
     return v / norm
 
+def global_max_pool_2d(v):
+    v_reduced = block_reduce(v, block_size=(1,v.shape[1],v.shape[2],1), func=np.max)
+    return v_reduced
+
+def global_sum_pool_2d(v):
+    v_reduced = block_reduce(v, block_size=(1,v.shape[1],v.shape[2],1), func=np.sum)
+    return v_reduced  
+
+def pca_whiten(m):
+    pca = PCA(whiten=True)
+    whitened = pca.fit_transform(m)
+    return whitened
 
 # data preprocess
 # resizes all the images (query and reference)
@@ -165,7 +192,8 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False)
+    base_model = MobileNet(weights='imagenet', input_shape=input_shape,
+                           include_top=False, pooling='avg')
     base_model.summary()
 
     x = base_model.output
@@ -174,15 +202,15 @@ if __name__ == '__main__':
     #x = Dropout(0.5)(x)
     #x = LeakyReLU(alpha=0.3)(x)
     #x = Flatten()(x)
-    x = Dense(3000, activation='relu')(x)
-    x = GlobalMaxPooling2D()(x)
+    #x = Dense(3000, activation='relu')(x)
+    #x = GlobalMaxPooling2D()(x)
     #x = Dense(2000, activation='relu')(x)
     #x = Dense(1000, activation='relu')(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=preds)
 
-    for layer in model.layers[:-10]:
+    for layer in model.layers[:-1]:
         layer.trainable = False # Don't train initial pretrained weights
 
     model.summary()
