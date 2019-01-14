@@ -198,7 +198,7 @@ if __name__ == '__main__':
     base_model.summary()
 
     #x = base_model.output
-    x = base_model.get_layer(name='activation_48').output
+    x = base_model.get_layer(name='activation_46').output
     x = Flatten()(x)
     #x = GlobalAveragePooling2D()(x)
     
