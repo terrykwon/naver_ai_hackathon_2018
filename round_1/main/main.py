@@ -197,9 +197,9 @@ if __name__ == '__main__':
     base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False, pooling='avg')
     base_model.summary()
 
-    #x = base_model.output
-    x = base_model.get_layer(name='activation_46').output
-    x = Flatten()(x)
+    x = base_model.output
+    #x = base_model.get_layer(name='activation_46').output
+    #x = Flatten()(x)
     #x = GlobalAveragePooling2D()(x)
     
     #x = Dropout(0.5)(x)
@@ -213,7 +213,7 @@ if __name__ == '__main__':
 
     model = Model(inputs=base_model.input, outputs=preds)
 
-    for layer in model.layers[:-1]:
+    for layer in model.layers[:-5]:
         layer.trainable = False # Don't train initial pretrained weights
 
     model.summary()
