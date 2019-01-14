@@ -194,10 +194,12 @@ if __name__ == '__main__':
     # Pretrained model
     #base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False, pooling='avg')
         
-    base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False, pooling='avg')
+    base_model = MobileNet(weights='imagenet', input_shape=input_shape, include_top=False, pooling='avg')
     base_model.summary()
 
-    x = base_model.output
+    #x = base_model.output
+    x = base_model.get_layer(name='conv_pw_12_relu').output
+    x = Flatten()(x)
     #x = GlobalAveragePooling2D()(x)
     
     #x = Dropout(0.5)(x)
