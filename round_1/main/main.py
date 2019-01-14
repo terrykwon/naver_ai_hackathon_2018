@@ -198,7 +198,7 @@ if __name__ == '__main__':
     base_model.summary()
 
     #x = base_model.output
-    x = base_model.get_layer(name='conv_pw_12_relu').output
+    x = base_model.get_layer(name='conv_pw_11_relu').output
     x = Flatten()(x)
     #x = GlobalAveragePooling2D()(x)
     
