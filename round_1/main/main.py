@@ -193,14 +193,14 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False, pooling='avg')
+    #base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False, pooling='avg')
         
-    #base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False, pooling='avg')
+    base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False, pooling='avg')
     base_model.summary()
 
-    x = base_model.output
-    #x = base_model.get_layer(name='activation_46').output
-    #x = Flatten()(x)
+    #x = base_model.output
+    x = base_model.get_layer(name='activation_44').output
+    x = Flatten()(x)
     #x = GlobalAveragePooling2D()(x)
     
     #x = Dropout(0.5)(x)
