@@ -73,7 +73,7 @@ def bind_model(model):
 
         # An image is converted to a feature vector,
         # which is the last layer after running an input through the network (excluding the softmax).
-        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-3].output])
+        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-2].output])
 
         print('inference start')
 
@@ -91,10 +91,10 @@ def bind_model(model):
             reference_vecs = get_feature_layer([reference_img, 0])[0]
             with open(db_output, 'wb') as f:
                 pickle.dump(reference_vecs, f)
-        query_vecs = global_max_pool_2d(query_vecs)
+        #query_vecs = global_max_pool_2d(query_vecs)
         query_vecs = query_vecs.reshape(query_vecs.shape[0],-1) # Flattens 1×1 components  
         query_len = query_vecs.shape[0] 
-        reference_vecs = global_max_pool_2d(reference_vecs)
+        #reference_vecs = global_max_pool_2d(reference_vecs)
         reference_vecs = reference_vecs.reshape(reference_vecs.shape[0],-1)
         reference_len = reference_vecs.shape[0]
         combined = np.concatenate((query_vecs, reference_vecs), axis = 0)
@@ -193,14 +193,14 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    #base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False, pooling='avg')
+    base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False)
         
-    base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False, pooling='avg')
+    #base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False, pooling='avg')
     base_model.summary()
 
-    #x = base_model.output
-    x = base_model.get_layer(name='activation_44').output
-    x = Flatten()(x)
+    x = base_model.output
+    #x = base_model.get_layer(name='activation_44').output
+    #x = Flatten()(x)
     #x = GlobalAveragePooling2D()(x)
     
     #x = Dropout(0.5)(x)
@@ -208,13 +208,14 @@ if __name__ == '__main__':
     #x = Flatten()(x)
     #x = Dense(3000, activation='relu')(x)
     #x = GlobalMaxPooling2D()(x)
-    #x = Dense(2000, activation='relu')(x)
+    x = Dense(2000, activation='relu')(x)
+    x = GlobalMaxPooling2D()(x)
     #x = Dense(1000, activation='relu')(x)
     preds = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=preds)
 
-    for layer in model.layers[:-1]:
+    for layer in model.layers[:-8]:
         layer.trainable = False # Don't train initial pretrained weights
 
     model.summary()
