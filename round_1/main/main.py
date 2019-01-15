@@ -215,7 +215,7 @@ if __name__ == '__main__':
 
     model = Model(inputs=base_model.input, outputs=preds)
 
-    for layer in model.layers[:-8]:
+    for layer in model.layers[:-3]:
         layer.trainable = False # Don't train initial pretrained weights
 
     model.summary()
