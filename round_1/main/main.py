@@ -91,9 +91,10 @@ def bind_model(model):
             reference_vecs = get_feature_layer([reference_img, 0])[0]
             with open(db_output, 'wb') as f:
                 pickle.dump(reference_vecs, f)
-
+        query_vecs = global_max_pool_2d(query_vecs)
         query_vecs = query_vecs.reshape(query_vecs.shape[0],-1) # Flattens 1×1 components  
         query_len = query_vecs.shape[0] 
+        reference_vecs = global_max_pool_2d(reference_vecs)
         reference_vecs = reference_vecs.reshape(reference_vecs.shape[0],-1)
         reference_len = reference_vecs.shape[0]
         combined = np.concatenate((query_vecs, reference_vecs), axis = 0)
@@ -192,9 +193,9 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    #base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False, pooling='avg')
+    base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False, pooling='avg')
         
-    base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False, pooling='avg')
+    #base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False, pooling='avg')
     base_model.summary()
 
     x = base_model.output
@@ -213,7 +214,7 @@ if __name__ == '__main__':
 
     model = Model(inputs=base_model.input, outputs=preds)
 
-    for layer in model.layers[:-5]:
+    for layer in model.layers[:-1]:
         layer.trainable = False # Don't train initial pretrained weights
 
     model.summary()
