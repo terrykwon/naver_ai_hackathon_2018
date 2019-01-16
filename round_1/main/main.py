@@ -16,7 +16,8 @@ from nsml import DATASET_PATH
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Dropout, Flatten, Activation
-from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D
+from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D, GlobalAveragePooling1D
+from keras.layers import Layer, Lambda
 from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
 from data_loader import train_data_loader
@@ -24,7 +25,11 @@ from data_loader import train_data_loader
 from keras.applications import MobileNet
 from keras.models import Model
 
+from skimage.measure import block_reduce
+from sklearn.decomposition import PCA
+from sklearn.metrics import average_precision_score
 
+        
 def bind_model(model):
     def save(dir_name):
         os.makedirs(dir_name, exist_ok=True)
@@ -58,12 +63,17 @@ def bind_model(model):
 
         # An image is converted to a feature vector,
         # which is the last layer after running an input through the network (excluding the softmax).
-        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-2].output])
+        # get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-2].output])
+        
+        # The last convolutional layer!!!
+        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-3].output]) 
 
         print('inference start')
 
         # inference
-        query_vecs = get_feature_layer([query_img, 0])[0]
+        query_vecs = get_feature_layer([query_img, 0])[0] # (195, 7, 7, 1024)
+        
+        print('shape of query_vecs:', query_vecs.shape)
 
         # caching db output, db inference
         db_output = './db_infer.pkl'
@@ -74,23 +84,51 @@ def bind_model(model):
             reference_vecs = get_feature_layer([reference_img, 0])[0]
             with open(db_output, 'wb') as f:
                 pickle.dump(reference_vecs, f)
-
-        # l2 normalization
-        query_vecs = l2_normalize(query_vecs)
-        reference_vecs = l2_normalize(reference_vecs)
+                
+        print('shape of reference_vecs:', reference_vecs.shape) # (1127, 7, 7, 1024)
+        
+        # Max pool (MAC)
+        query_vecs = global_max_pool_2d(query_vecs)
+        reference_vecs = global_max_pool_2d(reference_vecs)
+        
+        # Reshape into 1 vector per image
+        query_vecs = query_vecs.reshape(query_vecs.shape[0], -1) # Flattens 1x1 components
+        reference_vecs = reference_vecs.reshape(reference_vecs.shape[0], -1)
+        print('query_vecs.shape: {}, reference_vecs.shape: {}'.format(query_vecs.shape, reference_vecs.shape))
+        
+        # Combine
+        combined = np.concatenate((query_vecs, reference_vecs), axis=0)
+        print('shape of combined:', combined.shape)
+        
+        # L2 normalize
+        combined = l2_normalize(combined)
+        
+        # PCA whiten
+        combined_whitened = pca_whiten(combined)
+        print('dimensions after whitening:', combined_whitened.shape)
+        
+        # L2 normalize
+        combined_final = l2_normalize(combined_whitened)
+        
+        # Split back into query, references
+        query_vecs = combined_final[:query_vecs.shape[0]]
+        reference_vecs = combined_final[query_vecs.shape[0]:]
+        print('final query_vecs.shape: {}, reference_vecs.shape: {}'.format(query_vecs.shape, reference_vecs.shape))
 
         # Calculate cosine similarity
         # which is a similarity metric between images / vectors
         sim_matrix = np.dot(query_vecs, reference_vecs.T)
+        
+        print('shape of sim_matrix:', sim_matrix.shape)
 
         retrieval_results = {}
 
         for (i, query) in enumerate(queries):
-            query = query.split('/')[-1].split('.')[0]
+            query = query.split('/')[-1].split('.')[0] # query image file name
             sim_list = zip(references, sim_matrix[i].tolist())
             sorted_sim_list = sorted(sim_list, key=lambda x: x[1], reverse=True)
 
-            ranked_list = [k.split('/')[-1].split('.')[0] for (k, v) in sorted_sim_list]  # ranked list
+            ranked_list = [k.split('/')[-1].split('.')[0] for (k, v) in sorted_sim_list]
 
             retrieval_results[query] = ranked_list
         print('done')
@@ -99,6 +137,28 @@ def bind_model(model):
 
     # DONOTCHANGE: They are reserved for nsml
     nsml.bind(save=save, load=load, infer=infer)
+    
+
+# Concatenate the top 5 retrieved results
+def query_expansion(sim_list):
+    top_5 = sim_list[:5]
+    avg = np.average(top_5, axis=3)
+    
+
+def global_max_pool_2d(v):
+    v_reduced = block_reduce(v, block_size=(1, v.shape[1], v.shape[2], 1), func=np.max)
+    return v_reduced
+
+
+def global_sum_pool_2d(v):
+    v_reduced = block_reduce(v, block_size=(1, v.shape[1], v.shape[2], 1), func=np.sum)
+    return v_reduced
+
+
+def pca_whiten(m):
+    pca = PCA(whiten=True)
+    whitened = pca.fit_transform(m)
+    return whitened
 
 
 def l2_normalize(v):
@@ -106,6 +166,12 @@ def l2_normalize(v):
     if norm == 0:
         return v
     return v / norm
+    
+
+def unison_shuffled_copies(a, b):
+    assert len(a) == len(b)
+    p = np.random.permutation(len(a))
+    return a[p], b[p]
 
 
 # data preprocess
@@ -151,16 +217,18 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', include_top=False)
+    base_model = MobileNet(weights='imagenet', include_top=False, pooling='avg')
     base_model.summary()
 
-    x = base_model.get_layer(name='conv_pw_9_relu').output
-    x = GlobalMaxPooling2D()(x)
+    x = base_model.output
+    
+    # x = GlobalMaxPooling2D()(x)
+    
     preds = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=preds)
 
-    for layer in model.layers[:-8]:
+    for layer in model.layers[:-1]:
         layer.trainable = False # Don't train initial pretrained weights
 
     model.summary()
@@ -204,7 +272,7 @@ if __name__ == '__main__':
         x_train = x_train.astype('float32')
         x_train /= 255
         print(len(labels), 'train samples')
-
+        
         """ Callback """
         monitor = 'acc'
         reduce_lr = ReduceLROnPlateau(monitor=monitor, patience=3)
@@ -222,3 +290,84 @@ if __name__ == '__main__':
             train_loss, train_acc = res.history['loss'][0], res.history['acc'][0]
             nsml.report(summary=True, epoch=epoch, epoch_total=nb_epoch, loss=train_loss, acc=train_acc)
             nsml.save(epoch)
+        
+        ########### Evaluation with training set!!!! ######
+        # Make query & reference set
+        x_train, y_train = unison_shuffled_copies(x_train, y_train)
+        
+        query_imgs = x_train[:200]
+        query_labels = y_train[:200]
+        
+        reference_imgs = x_train[200:1200]
+        reference_labels = y_train[200:1200]
+        
+        # The last convolutional layer!!!
+        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-3].output]) 
+    
+        print('inference start')
+    
+        # inference
+        query_vecs = get_feature_layer([query_imgs, 0])[0] # (195, 7, 7, 1024)
+        reference_vecs = get_feature_layer([reference_imgs, 0])[0]
+        
+        print('shape of query_vecs:', query_vecs.shape)
+        print('shape of reference_vecs:', reference_vecs.shape) # (1127, 7, 7, 1024)
+    
+        # caching db output, db inference
+        # db_output = './db_infer_train.pkl'd
+        # if os.path.exists(db_output):
+        #     with open(db_output, 'rb') as f:
+        #         reference_vecs = pickle.load(f)
+        # else:
+        #     reference_vecs = get_feature_layer([reference_imgs, 0])[0]
+        #     with open(db_output, 'wb') as f:
+        #         pickle.dump(reference_vecs, f)
+        
+        # Max pool (MAC)
+        query_vecs = global_max_pool_2d(query_vecs)
+        reference_vecs = global_max_pool_2d(reference_vecs)
+        
+        # Reshape into 1 vector per image
+        query_vecs = query_vecs.reshape(query_vecs.shape[0], -1) # Flattens 1x1 components
+        reference_vecs = reference_vecs.reshape(reference_vecs.shape[0], -1)
+        print('query_vecs.shape: {}, reference_vecs.shape: {}'.format(query_vecs.shape, reference_vecs.shape))
+        
+        # Combine
+        combined = np.concatenate((query_vecs, reference_vecs), axis=0)
+        print('shape of combined:', combined.shape)
+        
+        # L2 normalize
+        combined = l2_normalize(combined)
+        
+        # PCA whiten
+        combined_whitened = pca_whiten(combined)
+        print('dimensions after whitening:', combined_whitened.shape)
+        
+        # L2 normalize
+        combined_final = l2_normalize(combined_whitened)
+        
+        # Split back into query, references
+        query_vecs = combined_final[:query_vecs.shape[0]]
+        reference_vecs = combined_final[query_vecs.shape[0]:]
+        print('final query_vecs.shape: {}, reference_vecs.shape: {}'.format(query_vecs.shape, reference_vecs.shape))
+    
+        # Calculate cosine similarity
+        # which is a similarity metric between images / vectors
+        sim_matrix = np.dot(query_vecs, reference_vecs.T)
+        print('shape of sim_matrix:', sim_matrix.shape)
+        
+        ground_truth = np.dot(query_labels, reference_labels.T)
+        
+        avg_precision_sum = 0
+        for i in range(sim_matrix.shape[0]):
+            gt = ground_truth[i].reshape(-1)
+            sim = sim_matrix[i].reshape(-1)
+            ap = average_precision_score(gt, sim)
+            avg_precision_sum += ap
+        
+        print('average precision sum:', avg_precision_sum)
+        print('MAP: {}'.format(avg_precision_sum / len(sim_matrix)))
+        
+        
+        ###############################################################
+        
