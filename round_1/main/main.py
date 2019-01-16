@@ -195,11 +195,11 @@ if __name__ == '__main__':
     # Pretrained model
     base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False)
         
-    #base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False, pooling='avg')
+    #base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False)
     base_model.summary()
 
     x = base_model.output
-    #x = base_model.get_layer(name='activation_44').output
+    #x = base_model.get_layer(name='activation_18').output
     #x = Flatten()(x)
     #x = GlobalAveragePooling2D()(x)
     
@@ -208,7 +208,10 @@ if __name__ == '__main__':
     #x = Flatten()(x)
     #x = Dense(3000, activation='relu')(x)
     #x = GlobalMaxPooling2D()(x)
+    #x = MaxPooling2D()(x)
     x = Dense(2000, activation='relu')(x)
+    #x = Dense(1000)(x)
+    #x = LeakyReLU(alpha=0.3)(x)
     x = GlobalMaxPooling2D()(x)
     #x = Dense(1000, activation='relu')(x)
     preds = Dense(num_classes, activation='softmax')(x)
