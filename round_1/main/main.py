@@ -28,6 +28,11 @@ from keras.models import Model
 from skimage.measure import block_reduce
 from sklearn.decomposition import PCA
 from sklearn.metrics import average_precision_score
+from sklearn.utils import shuffle
+from sklearn.preprocessing import LabelBinarizer
+
+from collections import Counter
+from collections import defaultdict
 
         
 def bind_model(model):
@@ -166,12 +171,9 @@ def l2_normalize(v):
     if norm == 0:
         return v
     return v / norm
-    
 
-def unison_shuffled_copies(a, b):
-    assert len(a) == len(b)
-    p = np.random.permutation(len(a))
-    return a[p], b[p]
+def mac(v):
+    pass
 
 
 # data preprocess
@@ -197,6 +199,75 @@ def preprocess(queries, db):
     return queries, query_img, db, reference_img
 
 
+def generate_queries_and_refs(images, labels, label_binarizer=None):
+    ''' Generates a query set, reference DB, and ground truth values.
+
+        # Arguments:
+            label_binarizer: an sklearn.preprocessing.LabelBinarizer fitted on
+                    the original labels. This is required when the number of original
+                    labels differs from the number of labels passed to this function, 
+                    e.g.) when generating from a subset of the original dataset, and 
+                    there are labels left out.
+
+        # Returns: (query_imgs, reference_imgs, ground_truth_matrix)
+            ground_truth_matrix: a binary matrix
+    '''
+    label_image_dict = defaultdict(list)
+
+    label_counts = Counter(labels)
+
+    if label_binarizer == None:
+        label_binarizer = LabelBinarizer(labels)
+
+    for i in range(len(labels)):
+        if label_counts[labels[i]] >= 2: # Discard classes with less than 2 images
+            label_image_dict[labels[i]].append(images[i])
+
+    query_imgs = []
+    query_labels = []
+    reference_imgs = []
+    reference_labels = []
+
+    for label in label_image_dict:
+        query_imgs.append(label_image_dict[label][0])
+        encoded_label = label_binarizer.transform([label])[0]
+        query_labels.append(encoded_label)
+        for ref_img in label_image_dict[label][1:]:
+            reference_imgs.append(ref_img)
+            reference_labels.append(encoded_label)
+
+    query_imgs = np.asarray(query_imgs)
+    query_labels = np.asarray(query_labels)
+    reference_imgs = np.asarray(reference_imgs)
+    reference_labels = np.asarray(reference_labels)
+
+    ground_truth_matrix = np.dot(query_labels, reference_labels.T)
+
+    return query_imgs, reference_imgs, ground_truth_matrix
+
+
+def mac(feature_vecs):
+    ''' Maximum Activations of Convolutions
+        i.e.) a spatial max-pool
+
+        # Arguments:
+            feature_vecs: (batch_size, width, height, num_channels)
+
+        # Returns:
+            mac_vector(batch_size, num_channels)
+    ''' 
+    result = global_max_pool_2d(feature_vecs) # Outputs same dimensions
+
+    # Reshape into 1 vector per image
+    result = result.reshape(result.shape[0], -1) # Flattens 1x1 components
+
+    result = l2_normalize(result)
+    result = pca_whiten(result)
+    result = l2_normalize(result)
+
+    return result
+
+
 if __name__ == '__main__':
     args = argparse.ArgumentParser()
 
@@ -217,7 +288,7 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', include_top=False, pooling='avg')
+    base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
     base_model.summary()
 
     x = base_model.output
@@ -268,7 +339,9 @@ if __name__ == '__main__':
 
         x_train = np.asarray(img_list)
         labels = np.asarray(label_list)
-        y_train = keras.utils.to_categorical(labels, num_classes=num_classes)
+        # y_train = keras.utils.to_categorical(labels, num_classes=num_classes)
+        label_binarizer = LabelBinarizer()
+        y_train = label_binarizer.fit_transform(labels)
         x_train = x_train.astype('float32')
         x_train /= 255
         print(len(labels), 'train samples')
@@ -278,33 +351,36 @@ if __name__ == '__main__':
         reduce_lr = ReduceLROnPlateau(monitor=monitor, patience=3)
 
         """ Training loop """
-        for epoch in range(nb_epoch):
-            res = model.fit(x_train, y_train,
-                            batch_size=batch_size,
-                            initial_epoch=epoch,
-                            epochs=epoch + 1,
-                            callbacks=[reduce_lr],
-                            verbose=1,
-                            shuffle=True)
-            print(res.history)
-            train_loss, train_acc = res.history['loss'][0], res.history['acc'][0]
-            nsml.report(summary=True, epoch=epoch, epoch_total=nb_epoch, loss=train_loss, acc=train_acc)
-            nsml.save(epoch)
+        # for epoch in range(nb_epoch):
+        #     res = model.fit(x_train, y_train,
+        #                     batch_size=batch_size,
+        #                     initial_epoch=epoch,
+        #                     epochs=epoch + 1,
+        #                     callbacks=[reduce_lr],
+        #                     verbose=1,
+        #                     shuffle=True)
+        #     print(res.history)
+        #     train_loss, train_acc = res.history['loss'][0], res.history['acc'][0]
+        #     nsml.report(summary=True, epoch=epoch, epoch_total=nb_epoch, loss=train_loss, acc=train_acc)
+        #     nsml.save(epoch)
         
         ########### Evaluation with training set!!!! ######
+        print('-----------------------------------------------------------')
+        print('Start evaluation with training set')
+
         # Make query & reference set
-        x_train, y_train = unison_shuffled_copies(x_train, y_train)
+        SUBSET_SIZE = 2000
+        print('number of evaluation samples:', SUBSET_SIZE)
+
+        x_train_sub = x_train[:SUBSET_SIZE]
+        labels_sub = labels[:SUBSET_SIZE]
+        x_train_sub, labels_sub = shuffle(x_train_sub, labels_sub) # Shuffle in unison
+
+        query_imgs, reference_imgs, ground_truth = generate_queries_and_refs(
+                    x_train_sub, labels_sub, label_binarizer)
         
-        query_imgs = x_train[:200]
-        query_labels = y_train[:200]
-        
-        reference_imgs = x_train[200:1200]
-        reference_labels = y_train[200:1200]
-        
-        # The last convolutional layer!!!
-        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-3].output]) 
-    
-        print('inference start')
+        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-3].output])
+        print('extracted feature layer:', model.layers[-3].name)
     
         # inference
         query_vecs = get_feature_layer([query_imgs, 0])[0] # (195, 7, 7, 1024)
@@ -312,62 +388,26 @@ if __name__ == '__main__':
         
         print('shape of query_vecs:', query_vecs.shape)
         print('shape of reference_vecs:', reference_vecs.shape) # (1127, 7, 7, 1024)
-    
-        # caching db output, db inference
-        # db_output = './db_infer_train.pkl'd
-        # if os.path.exists(db_output):
-        #     with open(db_output, 'rb') as f:
-        #         reference_vecs = pickle.load(f)
-        # else:
-        #     reference_vecs = get_feature_layer([reference_imgs, 0])[0]
-        #     with open(db_output, 'wb') as f:
-        #         pickle.dump(reference_vecs, f)
-        
-        # Max pool (MAC)
-        query_vecs = global_max_pool_2d(query_vecs)
-        reference_vecs = global_max_pool_2d(reference_vecs)
-        
-        # Reshape into 1 vector per image
-        query_vecs = query_vecs.reshape(query_vecs.shape[0], -1) # Flattens 1x1 components
-        reference_vecs = reference_vecs.reshape(reference_vecs.shape[0], -1)
-        print('query_vecs.shape: {}, reference_vecs.shape: {}'.format(query_vecs.shape, reference_vecs.shape))
         
         # Combine
         combined = np.concatenate((query_vecs, reference_vecs), axis=0)
         print('shape of combined:', combined.shape)
-        
-        # L2 normalize
-        combined = l2_normalize(combined)
-        
-        # PCA whiten
-        combined_whitened = pca_whiten(combined)
-        print('dimensions after whitening:', combined_whitened.shape)
-        
-        # L2 normalize
-        combined_final = l2_normalize(combined_whitened)
+
+        # Calculate MAC
+        mac = mac(combined)
         
         # Split back into query, references
-        query_vecs = combined_final[:query_vecs.shape[0]]
-        reference_vecs = combined_final[query_vecs.shape[0]:]
+        query_vecs = mac[:query_vecs.shape[0]]
+        reference_vecs = mac[query_vecs.shape[0]:]
         print('final query_vecs.shape: {}, reference_vecs.shape: {}'.format(query_vecs.shape, reference_vecs.shape))
     
         # Calculate cosine similarity
-        # which is a similarity metric between images / vectors
         sim_matrix = np.dot(query_vecs, reference_vecs.T)
         print('shape of sim_matrix:', sim_matrix.shape)
         
-        ground_truth = np.dot(query_labels, reference_labels.T)
+        avg_precision = average_precision_score(ground_truth, sim_matrix, average='macro')
         
-        avg_precision_sum = 0
-        for i in range(sim_matrix.shape[0]):
-            gt = ground_truth[i].reshape(-1)
-            sim = sim_matrix[i].reshape(-1)
-            ap = average_precision_score(gt, sim)
-            avg_precision_sum += ap
-        
-        print('average precision sum:', avg_precision_sum)
-        print('MAP: {}'.format(avg_precision_sum / len(sim_matrix)))
-        
+        print('mean average precision:', avg_precision)
         
         ###############################################################
         
