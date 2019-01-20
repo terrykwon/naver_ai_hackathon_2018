@@ -18,8 +18,11 @@ from sklearn.decomposition import PCA
 from nsml import DATASET_PATH
 import keras
 from keras.models import Sequential
-from keras.layers import Dense, Dropout, Flatten, Activation, LeakyReLU
-from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D, GlobalAveragePooling2D, MaxPooling2D
+
+from keras.layers import Dense, Dropout, Flatten, Activation
+from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D, GlobalAveragePooling1D
+from keras.layers import Layer, Lambda
+
 from keras.callbacks import ReduceLROnPlateau
 from keras import backend as K
 from data_loader import train_data_loader
@@ -27,7 +30,16 @@ from data_loader import train_data_loader
 from keras.applications import MobileNet, vgg16, nasnet, mobilenet_v2, resnet50
 from keras.models import Model
 
+from skimage.measure import block_reduce
+from sklearn.decomposition import PCA
+from sklearn.metrics import average_precision_score
+from sklearn.utils import shuffle
+from sklearn.preprocessing import LabelBinarizer
 
+from collections import Counter
+from collections import defaultdict
+
+        
 def bind_model(model):
     def save(dir_name):
         os.makedirs(dir_name, exist_ok=True)
@@ -73,15 +85,19 @@ def bind_model(model):
 
         # An image is converted to a feature vector,
         # which is the last layer after running an input through the network (excluding the softmax).
-        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-2].output])
+        # get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-2].output])
+        
+        # The last convolutional layer!!!
+        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-3].output]) 
 
         print('inference start')
 
         # inference
-        query_vecs = get_feature_layer([query_img, 0])[0]
-        #print(query_vecs) ; 
-        #print("===========query_vecs shape===========")
-        #print(query_vecs.shape)
+
+        query_vecs = get_feature_layer([query_img, 0])[0] # (195, 7, 7, 1024)
+        
+        print('shape of query_vecs:', query_vecs.shape)
+
         # caching db output, db inference
         db_output = './db_infer.pkl'
         if os.path.exists(db_output):
@@ -91,36 +107,71 @@ def bind_model(model):
             reference_vecs = get_feature_layer([reference_img, 0])[0]
             with open(db_output, 'wb') as f:
                 pickle.dump(reference_vecs, f)
+
         #query_vecs = global_max_pool_2d(query_vecs)
-        query_vecs = query_vecs.reshape(query_vecs.shape[0],-1) # Flattens 1×1 components  
-        query_len = query_vecs.shape[0] 
+        #query_vecs = query_vecs.reshape(query_vecs.shape[0],-1) # Flattens 1×1 components  
+        #query_len = query_vecs.shape[0] 
         #reference_vecs = global_max_pool_2d(reference_vecs)
-        reference_vecs = reference_vecs.reshape(reference_vecs.shape[0],-1)
-        reference_len = reference_vecs.shape[0]
-        combined = np.concatenate((query_vecs, reference_vecs), axis = 0)
+        #reference_vecs = reference_vecs.reshape(reference_vecs.shape[0],-1)
+        #reference_len = reference_vecs.shape[0]
+        #combined = np.concatenate((query_vecs, reference_vecs), axis = 0)
         
         # l2 normalization & pca whitening
+        '''
         combined = l2_normalize(combined)
         combined_whitened = pca_whiten(combined)
         combined_final = l2_normalize(combined_whitened)
         
         query_vecs = combined[:query_len,]
         reference_vecs = combined[query_len:,]
+        '''
         #query_vecs = l2_normalize(query_vecs)
         #reference_vecs = l2_normalize(reference_vecs)
+       
+        print('shape of reference_vecs:', reference_vecs.shape) # (1127, 7, 7, 1024)
+        
+        # Max pool (MAC)
+        query_vecs = global_max_pool_2d(query_vecs)
+        reference_vecs = global_max_pool_2d(reference_vecs)
+        
+        # Reshape into 1 vector per image
+        query_vecs = query_vecs.reshape(query_vecs.shape[0], -1) # Flattens 1x1 components
+        reference_vecs = reference_vecs.reshape(reference_vecs.shape[0], -1)
+        print('query_vecs.shape: {}, reference_vecs.shape: {}'.format(query_vecs.shape, reference_vecs.shape))
+        
+        # Combine
+        combined = np.concatenate((query_vecs, reference_vecs), axis=0)
+        print('shape of combined:', combined.shape)
+        
+        # L2 normalize
+        combined = l2_normalize(combined)
+        
+        # PCA whiten
+        combined_whitened = pca_whiten(combined)
+        print('dimensions after whitening:', combined_whitened.shape)
+        
+        # L2 normalize
+        combined_final = l2_normalize(combined_whitened)
+        
+        # Split back into query, references
+        query_vecs = combined_final[:query_vecs.shape[0]]
+        reference_vecs = combined_final[query_vecs.shape[0]:]
+        print('final query_vecs.shape: {}, reference_vecs.shape: {}'.format(query_vecs.shape, reference_vecs.shape))
 
         # Calculate cosine similarity
         # which is a similarity metric between images / vectors
         sim_matrix = np.dot(query_vecs, reference_vecs.T)
+        
+        print('shape of sim_matrix:', sim_matrix.shape)
 
         retrieval_results = {}
 
         for (i, query) in enumerate(queries):
-            query = query.split('/')[-1].split('.')[0]
+            query = query.split('/')[-1].split('.')[0] # query image file name
             sim_list = zip(references, sim_matrix[i].tolist())
             sorted_sim_list = sorted(sim_list, key=lambda x: x[1], reverse=True)
 
-            ranked_list = [k.split('/')[-1].split('.')[0] for (k, v) in sorted_sim_list]  # ranked list
+            ranked_list = [k.split('/')[-1].split('.')[0] for (k, v) in sorted_sim_list]
 
             retrieval_results[query] = ranked_list
         print('done')
@@ -129,6 +180,28 @@ def bind_model(model):
 
     # DONOTCHANGE: They are reserved for nsml
     nsml.bind(save=save, load=load, infer=infer)
+    
+
+# Concatenate the top 5 retrieved results
+def query_expansion(sim_list):
+    top_5 = sim_list[:5]
+    avg = np.average(top_5, axis=3)
+    
+
+def global_max_pool_2d(v):
+    v_reduced = block_reduce(v, block_size=(1, v.shape[1], v.shape[2], 1), func=np.max)
+    return v_reduced
+
+
+def global_sum_pool_2d(v):
+    v_reduced = block_reduce(v, block_size=(1, v.shape[1], v.shape[2], 1), func=np.sum)
+    return v_reduced
+
+
+def pca_whiten(m):
+    pca = PCA(whiten=True)
+    whitened = pca.fit_transform(m)
+    return whitened
 
 
 def l2_normalize(v):
@@ -137,18 +210,9 @@ def l2_normalize(v):
         return v
     return v / norm
 
-def global_max_pool_2d(v):
-    v_reduced = block_reduce(v, block_size=(1,v.shape[1],v.shape[2],1), func=np.max)
-    return v_reduced
+def mac(v):
+    pass
 
-def global_sum_pool_2d(v):
-    v_reduced = block_reduce(v, block_size=(1,v.shape[1],v.shape[2],1), func=np.sum)
-    return v_reduced  
-
-def pca_whiten(m):
-    pca = PCA(whiten=True)
-    whitened = pca.fit_transform(m)
-    return whitened
 
 # data preprocess
 # resizes all the images (query and reference)
@@ -173,6 +237,75 @@ def preprocess(queries, db):
     return queries, query_img, db, reference_img
 
 
+def generate_queries_and_refs(images, labels, label_binarizer=None):
+    ''' Generates a query set, reference DB, and ground truth values.
+
+        # Arguments:
+            label_binarizer: an sklearn.preprocessing.LabelBinarizer fitted on
+                    the original labels. This is required when the number of original
+                    labels differs from the number of labels passed to this function, 
+                    e.g.) when generating from a subset of the original dataset, and 
+                    there are labels left out.
+
+        # Returns: (query_imgs, reference_imgs, ground_truth_matrix)
+            ground_truth_matrix: a binary matrix
+    '''
+    label_image_dict = defaultdict(list)
+
+    label_counts = Counter(labels)
+
+    if label_binarizer == None:
+        label_binarizer = LabelBinarizer(labels)
+
+    for i in range(len(labels)):
+        if label_counts[labels[i]] >= 2: # Discard classes with less than 2 images
+            label_image_dict[labels[i]].append(images[i])
+
+    query_imgs = []
+    query_labels = []
+    reference_imgs = []
+    reference_labels = []
+
+    for label in label_image_dict:
+        query_imgs.append(label_image_dict[label][0])
+        encoded_label = label_binarizer.transform([label])[0]
+        query_labels.append(encoded_label)
+        for ref_img in label_image_dict[label][1:]:
+            reference_imgs.append(ref_img)
+            reference_labels.append(encoded_label)
+
+    query_imgs = np.asarray(query_imgs)
+    query_labels = np.asarray(query_labels)
+    reference_imgs = np.asarray(reference_imgs)
+    reference_labels = np.asarray(reference_labels)
+
+    ground_truth_matrix = np.dot(query_labels, reference_labels.T)
+
+    return query_imgs, reference_imgs, ground_truth_matrix
+
+
+def mac(feature_vecs):
+    ''' Maximum Activations of Convolutions
+        i.e.) a spatial max-pool
+
+        # Arguments:
+            feature_vecs: (batch_size, width, height, num_channels)
+
+        # Returns:
+            mac_vector(batch_size, num_channels)
+    ''' 
+    result = global_max_pool_2d(feature_vecs) # Outputs same dimensions
+
+    # Reshape into 1 vector per image
+    result = result.reshape(result.shape[0], -1) # Flattens 1x1 components
+
+    result = l2_normalize(result)
+    result = pca_whiten(result)
+    result = l2_normalize(result)
+
+    return result
+
+
 if __name__ == '__main__':
     args = argparse.ArgumentParser()
 
@@ -193,6 +326,8 @@ if __name__ == '__main__':
     input_shape = (224, 224, 3)  # input image shape
 
     # Pretrained model
+
+    '''
     base_model = MobileNet(weights='imagenet', input_shape=input_shape,include_top=False)
         
     #base_model = resnet50.ResNet50(weights='imagenet', input_shape=input_shape, include_top=False)
@@ -214,11 +349,21 @@ if __name__ == '__main__':
     #x = LeakyReLU(alpha=0.3)(x)
     x = GlobalMaxPooling2D()(x)
     #x = Dense(1000, activation='relu')(x)
+=======
+    base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
+    base_model.summary()
+
+    x = base_model.output
+    
+    # x = GlobalMaxPooling2D()(x)
+    '''
+
     preds = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=preds)
 
-    for layer in model.layers[:-3]:
+
+    for layer in model.layers[:-1]:
         layer.trainable = False # Don't train initial pretrained weights
 
     model.summary()
@@ -258,25 +403,75 @@ if __name__ == '__main__':
 
         x_train = np.asarray(img_list)
         labels = np.asarray(label_list)
-        y_train = keras.utils.to_categorical(labels, num_classes=num_classes)
+        # y_train = keras.utils.to_categorical(labels, num_classes=num_classes)
+        label_binarizer = LabelBinarizer()
+        y_train = label_binarizer.fit_transform(labels)
         x_train = x_train.astype('float32')
         x_train /= 255
         print(len(labels), 'train samples')
-
+        
         """ Callback """
         monitor = 'acc'
         reduce_lr = ReduceLROnPlateau(monitor=monitor, patience=3)
 
         """ Training loop """
-        for epoch in range(nb_epoch):
-            res = model.fit(x_train, y_train,
-                            batch_size=batch_size,
-                            initial_epoch=epoch,
-                            epochs=epoch + 1,
-                            callbacks=[reduce_lr],
-                            verbose=1,
-                            shuffle=True)
-            print(res.history)
-            train_loss, train_acc = res.history['loss'][0], res.history['acc'][0]
-            nsml.report(summary=True, epoch=epoch, epoch_total=nb_epoch, loss=train_loss, acc=train_acc)
-            nsml.save(epoch)
+        # for epoch in range(nb_epoch):
+        #     res = model.fit(x_train, y_train,
+        #                     batch_size=batch_size,
+        #                     initial_epoch=epoch,
+        #                     epochs=epoch + 1,
+        #                     callbacks=[reduce_lr],
+        #                     verbose=1,
+        #                     shuffle=True)
+        #     print(res.history)
+        #     train_loss, train_acc = res.history['loss'][0], res.history['acc'][0]
+        #     nsml.report(summary=True, epoch=epoch, epoch_total=nb_epoch, loss=train_loss, acc=train_acc)
+        #     nsml.save(epoch)
+        
+        ########### Evaluation with training set!!!! ######
+        print('-----------------------------------------------------------')
+        print('Start evaluation with training set')
+
+        # Make query & reference set
+        SUBSET_SIZE = 2000
+        print('number of evaluation samples:', SUBSET_SIZE)
+
+        x_train_sub = x_train[:SUBSET_SIZE]
+        labels_sub = labels[:SUBSET_SIZE]
+        x_train_sub, labels_sub = shuffle(x_train_sub, labels_sub) # Shuffle in unison
+
+        query_imgs, reference_imgs, ground_truth = generate_queries_and_refs(
+                    x_train_sub, labels_sub, label_binarizer)
+        
+        get_feature_layer = K.function([model.layers[0].input] + [K.learning_phase()], [model.layers[-3].output])
+        print('extracted feature layer:', model.layers[-3].name)
+    
+        # inference
+        query_vecs = get_feature_layer([query_imgs, 0])[0] # (195, 7, 7, 1024)
+        reference_vecs = get_feature_layer([reference_imgs, 0])[0]
+        
+        print('shape of query_vecs:', query_vecs.shape)
+        print('shape of reference_vecs:', reference_vecs.shape) # (1127, 7, 7, 1024)
+        
+        # Combine
+        combined = np.concatenate((query_vecs, reference_vecs), axis=0)
+        print('shape of combined:', combined.shape)
+
+        # Calculate MAC
+        mac = mac(combined)
+        
+        # Split back into query, references
+        query_vecs = mac[:query_vecs.shape[0]]
+        reference_vecs = mac[query_vecs.shape[0]:]
+        print('final query_vecs.shape: {}, reference_vecs.shape: {}'.format(query_vecs.shape, reference_vecs.shape))
+    
+        # Calculate cosine similarity
+        sim_matrix = np.dot(query_vecs, reference_vecs.T)
+        print('shape of sim_matrix:', sim_matrix.shape)
+        
+        avg_precision = average_precision_score(ground_truth, sim_matrix, average='macro')
+        
+        print('mean average precision:', avg_precision)
+        
+        ###############################################################
+        
