@@ -15,8 +15,8 @@ def train_data_loader(data_path, img_size, output_path):
     img_list = []
     label_idx = 0
     
-    # debug
-    file_count = 0
+    # DEBUG
+    # file_count = 0
 
     for root, dirs, files in os.walk(data_path):
         if not files:
@@ -31,11 +31,11 @@ def train_data_loader(data_path, img_size, output_path):
                 continue
             label_list.append(label_idx)
             img_list.append(img)
-            file_count += 1
             
-            # debug
-            if file_count > 2000:
-                break
+            # DEBUG
+            # file_count += 1
+            # if file_count > 2000:
+            #     break
             
         label_idx += 1
 
