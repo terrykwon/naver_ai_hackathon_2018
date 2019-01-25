@@ -215,6 +215,7 @@ def generate_queries_and_refs(images, labels, label_binarizer=None):
     label_image_dict = defaultdict(list)
 
     label_counts = Counter(labels)
+    print(label_counts.most_common(10))
 
     if label_binarizer == None:
         label_binarizer = LabelBinarizer(labels)
@@ -381,17 +382,20 @@ if __name__ == '__main__':
         print('maxpool_layer', model.layers[-2].name)
     
         # inference
-        conv_query_vecs = get_conv_layer([query_imgs, 0])[0] # (195, 7, 7, 1024)
-        conv_ref_vecs = get_conv_layer([reference_imgs, 0])[0]
-        conv_query_vecs = global_max_pool_2d(conv_query_vecs)
-        conv_ref_vecs = global_max_pool_2d(conv_ref_vecs)
+        conv_query_vecs_f = get_conv_layer([query_imgs, 0])[0] # (195, 7, 7, 1024)
+        conv_ref_vecs_f = get_conv_layer([reference_imgs, 0])[0]
+        print('conv_query_vecs_f.shape', conv_query_vecs_f.shape)
+        print('conv_query_vecs_f[0]', conv_query_vecs_f[0])
+        
+        conv_query_vecs = global_max_pool_2d(conv_query_vecs_f)
+        conv_ref_vecs = global_max_pool_2d(conv_ref_vecs_f)
         print('conv_query_vecs.shape', conv_query_vecs.shape)
-        print('conv_query_vecs[0]', conv_query_vecs[0])
+        print('conv_query_vecs[0]', conv_query_vecs[0][:20])
         
         maxpool_query_vecs = get_maxpool_layer([query_imgs, 0])[0]
         maxpool_ref_vecs = get_maxpool_layer([reference_imgs, 0])[0]
         print('maxpool_query_vecs.shape', maxpool_query_vecs.shape)
-        print('maxpool_query_vecs[0]', maxpool_query_vecs[0])
+        print('maxpool_query_vecs[0]', maxpool_query_vecs[0][:20])
         
         print('same query macs', np.all(conv_query_vecs == maxpool_query_vecs))
         print('same reference macs', np.all(conv_ref_vecs == maxpool_ref_vecs))
