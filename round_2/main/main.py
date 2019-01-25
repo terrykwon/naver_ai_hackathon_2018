@@ -385,16 +385,16 @@ if __name__ == '__main__':
         conv_ref_vecs = get_conv_layer([reference_imgs, 0])[0]
         conv_query_vecs = global_max_pool_2d(conv_query_vecs)
         conv_ref_vecs = global_max_pool_2d(conv_ref_vecs)
-        print('conv_query_vecs.size', conv_query_vecs.size)
+        print('conv_query_vecs.shape', conv_query_vecs.shape)
         print('conv_query_vecs[0]', conv_query_vecs[0])
         
         maxpool_query_vecs = get_maxpool_layer([query_imgs, 0])[0]
-        maxpool_ref_vecs = get_maxpool_layer([query_imgs, 0])[0]
-        print('maxpool_query_vecs.size', maxpool_query_vecs.size)
+        maxpool_ref_vecs = get_maxpool_layer([reference_imgs, 0])[0]
+        print('maxpool_query_vecs.shape', maxpool_query_vecs.shape)
         print('maxpool_query_vecs[0]', maxpool_query_vecs[0])
         
-        print('same mac', np.all(conv_query_vecs == maxpool_query_vecs))
-        print('same mac', np.all(conv_ref_vecs == maxpool_ref_vecs))
+        print('same query macs', np.all(conv_query_vecs == maxpool_query_vecs))
+        print('same reference macs', np.all(conv_ref_vecs == maxpool_ref_vecs))
         
         # Combine
         # conv_combined = np.concatenate((conv_query_vecs, conv_ref_vecs), axis=0)
