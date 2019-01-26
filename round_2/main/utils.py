@@ -83,8 +83,8 @@ def global_sum_pool_2d(v):
     return v_reduced
 
 
-def pca_whiten(m):
-    pca = PCA(whiten=True)
+def pca_whiten(m, n_components=None):
+    pca = PCA(n_components=n_components, whiten=True)
     whitened = pca.fit_transform(m)
     return whitened
 
@@ -96,7 +96,7 @@ def l2_normalize(v):
     return v / norm
     
 
-def calculate_mac(feature_vecs):
+def calculate_mac(feature_vecs, pca_dims=None):
     ''' Maximum Activations of Convolutions
         i.e.) a spatial max-pool
 
@@ -114,7 +114,7 @@ def calculate_mac(feature_vecs):
     return feature_vecs
     
     
-def calculate_rmac(conv_maps, L=3):
+def calculate_rmac(conv_maps, L=3, pca_dims=None):
     ''' Regional Maximum Activation of Convolutions
         
         # Arguments:
@@ -140,7 +140,7 @@ def calculate_rmac(conv_maps, L=3):
                            height_start:height_end,
                            :]
                            
-        mac = calculate_mac(sliced)
+        mac = calculate_mac(sliced, pca_dims=pca_dims)
         mac_list.append(mac)
         
     mac_list = np.asarray(mac_list) # (num_regions, batch_size, channels)

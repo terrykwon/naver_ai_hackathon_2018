@@ -20,6 +20,7 @@ from keras.preprocessing.image import ImageDataGenerator
 
 from keras.applications import MobileNet
 from utils import *
+import faiss
 
 
 def bind_model(model):
@@ -32,13 +33,26 @@ def bind_model(model):
         model.load_weights(file_path)
         print('model loaded!')
 
-    def infer(queries, db):
+    def infer(queries, _):
+        test_path = DATASET_PATH + '/test/test_data'
+        db = [os.path.join(test_path, 'reference', path) for path in os.listdir(os.path.join(test_path, 'reference'))]
+        
         queries = [v.split('/')[-1].split('.')[0] for v in queries]
         db = [v.split('/')[-1].split('.')[0] for v in db]
         queries.sort()
         db.sort()
 
         queries, query_vecs, references, reference_vecs = get_feature(model, queries, db)
+        
+        print('type queries', type(queries)) # list of filenames
+        print('queries[0]', queries[0])
+        print('type references', type(references)) # list of filanames
+        print('references[0]', references[0])
+        print()
+        print('len queries', len(queries))
+        print('query_vecs.shape', query_vecs.shape)
+        print('len references', len(references))
+        print('reference_vecs.shape', reference_vecs.shape)
 
         # l2 normalization
         query_vecs = l2_normalize(query_vecs)
@@ -53,6 +67,7 @@ def bind_model(model):
 
         for (i, query) in enumerate(queries):
             ranked_list = [references[k] for k in indices[i]]
+            print('len ranked_list', len(ranked_list))
             if len(ranked_list) >= 1000:
                 ranked_list = ranked_list[:1000]
             retrieval_results[query] = ranked_list
@@ -94,7 +109,11 @@ def get_feature(model, queries, db):
     )
     reference_vecs = intermediate_layer_model.predict_generator(reference_generator, steps=len(reference_generator),
                                                                 verbose=1)
-
+                                                                
+    combined_vecs = np.concatenate((query_vecs, reference_vecs), axis=0)
+    rmacs = calculate_rmac(combined_vecs)
+    print('rmacs.shape', rmacs.shape)
+    
     return queries, query_vecs, db, reference_vecs
 
 
@@ -102,7 +121,7 @@ if __name__ == '__main__':
     args = argparse.ArgumentParser()
 
     # hyperparameters
-    args.add_argument('--epoch', type=int, default=5)
+    args.add_argument('--epoch', type=int, default=0)
     args.add_argument('--batch_size', type=int, default=64)
     args.add_argument('--num_classes', type=int, default=1383)
 
@@ -155,10 +174,11 @@ if __name__ == '__main__':
         print('dataset path', DATASET_PATH)
 
         train_datagen = ImageDataGenerator(
-            rescale=1. / 255,
-            shear_range=0.2,
-            zoom_range=0.2,
-            horizontal_flip=True)
+            # rescale=1. / 255,
+            # shear_range=0.2,
+            # zoom_range=0.2,
+            # horizontal_flip=True
+        )
 
         train_generator = train_datagen.flow_from_directory(
             directory=DATASET_PATH + '/train/train_data',
@@ -171,6 +191,9 @@ if __name__ == '__main__':
         )
         
         nsml.save(0) # Initial save, without any training.
+        
+        """ Test with a subset of training data """
+        
 
         """ Callback """
         monitor = 'acc'
