@@ -5,6 +5,7 @@ from __future__ import print_function
 
 import os
 import argparse
+import pickle
 import time
 
 import nsml
@@ -18,9 +19,15 @@ from keras.layers import Conv2D, MaxPooling2D
 from keras.callbacks import ReduceLROnPlateau
 from keras.preprocessing.image import ImageDataGenerator
 
-from keras.applications import MobileNet
+# from keras.applications import MobileNet
+from keras.applications.vgg16 import VGG16
 from utils import *
-import faiss
+from sklearn.preprocessing import LabelBinarizer
+from sklearn.metrics import average_precision_score
+from data_loader import train_data_loader
+from sklearn.decomposition import PCA
+# from annoy import AnnoyIndex
+from sklearn.neighbors import BallTree
 
 
 def bind_model(model):
@@ -59,9 +66,12 @@ def bind_model(model):
         reference_vecs = l2_normalize(reference_vecs)
 
         # Calculate cosine similarity
-        sim_matrix = np.dot(query_vecs, reference_vecs.T)
-        indices = np.argsort(sim_matrix, axis=1)
-        indices = np.flip(indices, axis=1)
+        # sim_matrix = np.dot(query_vecs, reference_vecs.T)
+        # indices = np.argsort(sim_matrix, axis=1)
+        # indices = np.flip(indices, axis=1)
+        
+        tree = BallTree(reference_vecs, metric='euclidean')              
+        indices = tree.query(query_vecs, k=1000, return_distance=False)
 
         retrieval_results = {}
 
@@ -77,6 +87,45 @@ def bind_model(model):
 
     # DONOTCHANGE: They are reserved for nsml
     nsml.bind(save=save, load=load, infer=infer)
+    
+
+def infer_with_validation(queries, db, ground_truth, model):
+    print('------- Start inference with validation set -------')
+    print('queries.shape', queries.shape)
+    print('db.shape', db.shape)
+    print('ground_truth.shape', ground_truth.shape)
+    
+    layer_name = 'block5_conv3'
+    print('layer_name', layer_name)
+    intermediate_layer_model = Model(inputs=model.input, 
+            outputs=model.get_layer(layer_name).output)
+    
+    query_vecs = intermediate_layer_model.predict(queries, verbose=1)
+    reference_vecs = intermediate_layer_model.predict(db, verbose=1)
+    print('query_vecs.shape', query_vecs.shape)
+    print('reference_vecs.shape', reference_vecs.shape)
+    
+    print('--- PCA ---')
+    combined_vecs = np.concatenate((query_vecs, reference_vecs), axis=0)
+    # Calculate MACs in order to fit PCA weights
+    combined_macs_for_pca = calculate_mac(combined_vecs)
+    pca = PCA(n_components=512, whiten=True)
+    pca = pca.fit(combined_macs_for_pca)
+    
+    combined_vecs = calculate_rmac(combined_vecs, L=3, pca=pca)
+    
+    query_vecs = combined_vecs[:query_vecs.shape[0]]
+    reference_vecs = combined_vecs[query_vecs.shape[0]:]
+    print('query_vecs.shape', query_vecs.shape)
+    print('reference_vecs.shape', reference_vecs.shape)
+    
+    # Calculate cosine similarity
+    sim_matrix = np.dot(query_vecs, reference_vecs.T)
+    print('shape of sim_matrix:', sim_matrix.shape)
+    
+    avg_precision = average_precision_score(ground_truth, sim_matrix, average='macro')
+    
+    print('mean average precision:', avg_precision)
     
 
 # data preprocess
@@ -109,10 +158,6 @@ def get_feature(model, queries, db):
     )
     reference_vecs = intermediate_layer_model.predict_generator(reference_generator, steps=len(reference_generator),
                                                                 verbose=1)
-                                                                
-    combined_vecs = np.concatenate((query_vecs, reference_vecs), axis=0)
-    rmacs = calculate_rmac(combined_vecs)
-    print('rmacs.shape', rmacs.shape)
     
     return queries, query_vecs, db, reference_vecs
 
@@ -140,15 +185,12 @@ if __name__ == '__main__':
 
     """ Model """
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
+    # base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
+    base_model = VGG16(weights='imagenet', include_top=False)
     base_model.summary()
 
     x = base_model.output
-    
-    # x = GlobalMaxPooling2D()(x)
-    
     x = Dense(num_classes, activation='softmax')(x)
-
     model = Model(inputs=base_model.input, outputs=x)
     
     for layer in model.layers[:-1]:
@@ -193,6 +235,32 @@ if __name__ == '__main__':
         nsml.save(0) # Initial save, without any training.
         
         """ Test with a subset of training data """
+        print('dataset path', DATASET_PATH)
+        output_path = ['./img_list.pkl', './label_list.pkl']
+        train_dataset_path = DATASET_PATH + '/train/train_data'
+        
+        train_data_loader(train_dataset_path, 
+                          input_shape[:2], 
+                          output_path=output_path,
+                          num_samples=5000)
+                          
+        with open(output_path[0], 'rb') as img_f:
+            img_list = pickle.load(img_f)
+        with open(output_path[1], 'rb') as label_f:
+            label_list = pickle.load(label_f)
+            
+        x_train = np.asarray(img_list)
+        labels = np.asarray(label_list)
+        label_binarizer = LabelBinarizer()
+        y_train = label_binarizer.fit_transform(labels)
+        x_train = x_train.astype('float32')
+        x_train /= 255
+        print(len(labels), 'validation samples')
+        
+        query_imgs, reference_imgs, ground_truth = generate_queries_and_refs(
+                x_train, labels, label_binarizer)
+                
+        infer_with_validation(query_imgs, reference_imgs, ground_truth, model)
         
 
         """ Callback """
