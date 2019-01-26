@@ -125,7 +125,7 @@ def calculate_rmac(conv_maps, L=3):
         # Returns:
             rmac_vector (batch_size, num_channels)
     '''
-    rmac_regions = get_rmac_regions(L, conv_maps[1], conv_maps[2])
+    rmac_regions = get_rmac_regions(L, conv_maps.shape[1], conv_maps.shape[2])
     
     mac_list = []
         
@@ -133,7 +133,7 @@ def calculate_rmac(conv_maps, L=3):
         width_start = region[0]
         width_end = width_start + region[2]
         height_start = region[1]
-        height_end = region[2]
+        height_end = height_start + region[2]
         
         sliced = conv_maps[:, 
                            width_start:width_end,
@@ -145,8 +145,8 @@ def calculate_rmac(conv_maps, L=3):
         
     mac_list = np.asarray(mac_list) # (num_regions, batch_size, channels)
     summed_mac_list = np.sum(mac_list, axis=0) # (batch_size, channels)
-    
-    # TODO: PCA whitening and everything else
+    summed_mac_list = l2_normalize(summed_mac_list)
+
     return summed_mac_list
     
 

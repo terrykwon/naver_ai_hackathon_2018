@@ -53,8 +53,8 @@ def bind_model(model):
 
         for (i, query) in enumerate(queries):
             ranked_list = [references[k] for k in indices[i]]
-            ranked_list = ranked_list[:1000]
-
+            if len(ranked_list) >= 1000:
+                ranked_list = ranked_list[:1000]
             retrieval_results[query] = ranked_list
         print('done')
 
