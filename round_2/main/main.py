@@ -21,6 +21,7 @@ from keras.preprocessing.image import ImageDataGenerator
 
 # from keras.applications import MobileNet
 from keras.applications.vgg16 import VGG16
+# from keras.applications import VGG19
 from utils import *
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.metrics import average_precision_score
@@ -72,6 +73,22 @@ def bind_model(model):
         
         tree = BallTree(reference_vecs, metric='euclidean')              
         indices = tree.query(query_vecs, k=1000, return_distance=False)
+        
+        # Query expansion
+        k_nearest = reference_vecs[indices[:,:5]] # (192, 5)
+        print('k_nearest.shape', k_nearest.shape)
+        query_vecs = np.expand_dims(query_vecs, axis=1)
+        print('query_vecs.shape', query_vecs.shape)
+        
+        k_nearest = np.concatenate((k_nearest, query_vecs), axis=1)
+        print('k_nearest.shape', k_nearest.shape)
+        
+        query_vecs = np.sum(k_nearest, axis=1)
+        query_vecs = l2_normalize(query_vecs)
+        print('k_nearest.shape', k_nearest.shape)
+        
+        # Re-query
+        indices = tree.query(query_vecs, k=1000, return_distance=False)
 
         retrieval_results = {}
 
@@ -95,7 +112,7 @@ def infer_with_validation(queries, db, ground_truth, model):
     print('db.shape', db.shape)
     print('ground_truth.shape', ground_truth.shape)
     
-    layer_name = 'block5_conv3'
+    layer_name = 'conv_pw_11_bn'
     print('layer_name', layer_name)
     intermediate_layer_model = Model(inputs=model.input, 
             outputs=model.get_layer(layer_name).output)
@@ -105,27 +122,44 @@ def infer_with_validation(queries, db, ground_truth, model):
     print('query_vecs.shape', query_vecs.shape)
     print('reference_vecs.shape', reference_vecs.shape)
     
-    print('--- PCA ---')
+    num_queries = query_vecs.shape[0]
+    num_references = reference_vecs.shape[0]
+    
+    # print('--- PCA ---')
     combined_vecs = np.concatenate((query_vecs, reference_vecs), axis=0)
+    
     # Calculate MACs in order to fit PCA weights
-    combined_macs_for_pca = calculate_mac(combined_vecs)
-    pca = PCA(n_components=512, whiten=True)
-    pca = pca.fit(combined_macs_for_pca)
+    combined_macs = calculate_mac(combined_vecs)
+    # pca = PCA(n_components=256, whiten=True)
+    # pca = pca.fit(combined_macs)
+    # combined_macs = pca.transform(combined_macs)
     
-    combined_vecs = calculate_rmac(combined_vecs, L=3, pca=pca)
+    combined_rmacs = calculate_rmac(combined_vecs, L=3)
     
-    query_vecs = combined_vecs[:query_vecs.shape[0]]
-    reference_vecs = combined_vecs[query_vecs.shape[0]:]
-    print('query_vecs.shape', query_vecs.shape)
-    print('reference_vecs.shape', reference_vecs.shape)
+    mac_query_vecs = combined_macs[:num_queries]
+    mac_reference_vecs = combined_macs[num_queries:]
+    
+    rmac_query_vecs = combined_rmacs[:num_queries]
+    rmac_reference_vecs = combined_rmacs[num_queries:]
+    
+    print('mac_query_vecs.shape', mac_query_vecs.shape)
+    print('mac_reference_vecs.shape', mac_reference_vecs.shape)
+    print('rmac_query_vecs.shape', rmac_query_vecs.shape)
+    print('rmac_reference_vecs.shape', rmac_reference_vecs.shape)
     
     # Calculate cosine similarity
-    sim_matrix = np.dot(query_vecs, reference_vecs.T)
-    print('shape of sim_matrix:', sim_matrix.shape)
+    mac_sim_matrix = np.dot(mac_query_vecs, mac_reference_vecs.T)
+    rmac_sim_matrix = np.dot(rmac_query_vecs, rmac_reference_vecs.T)
+    print('shape of mac_sim_matrix:', mac_sim_matrix.shape)
+    print('shape of rmac_sim_matrix:', rmac_sim_matrix.shape)
     
-    avg_precision = average_precision_score(ground_truth, sim_matrix, average='macro')
+    rmac_avg_precision = average_precision_score(ground_truth, 
+            rmac_sim_matrix, average='macro')
+    mac_avg_precision = average_precision_score(ground_truth,
+            mac_sim_matrix, average='macro')
     
-    print('mean average precision:', avg_precision)
+    print('mac_avg_precision', mac_avg_precision)
+    print('rmac_avg_precision:', rmac_avg_precision)
     
 
 # data preprocess
@@ -185,8 +219,9 @@ if __name__ == '__main__':
 
     """ Model """
     # Pretrained model
-    # base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
-    base_model = VGG16(weights='imagenet', include_top=False)
+    base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
+    # base_model = VGG16(weights='imagenet', include_top=False)
+    # base_model = VGG19(weights='imagenet', include_top=False)
     base_model.summary()
 
     x = base_model.output

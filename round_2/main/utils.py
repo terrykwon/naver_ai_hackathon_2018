@@ -200,3 +200,9 @@ def get_rmac_regions(W, H, L):
     regions = np.asarray(regions)
     return regions
     
+    
+def expand_query(query_vecs, reference_vecs, indices):
+    pass
+    
+    
+    
