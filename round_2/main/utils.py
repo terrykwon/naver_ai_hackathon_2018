@@ -129,7 +129,7 @@ def calculate_rmac(conv_maps, L=3, pca=None):
         # Returns:
             rmac_vector (batch_size, num_channels)
     '''
-    rmac_regions = get_rmac_regions(L, conv_maps.shape[1], conv_maps.shape[2])
+    rmac_regions = get_rmac_regions(conv_maps.shape[1], conv_maps.shape[2], L)
     
     mac_list = []
         
@@ -201,8 +201,20 @@ def get_rmac_regions(W, H, L):
     return regions
     
     
-def expand_query(query_vecs, reference_vecs, indices):
-    pass
+def expand_query(query_vecs, reference_vecs, ranked_indices, k=5):
+    k_nearest = reference_vecs[ranked_indices[:,:k]] # (192, 5)
+    print('k_nearest.shape', k_nearest.shape)
+    query_vecs = np.expand_dims(query_vecs, axis=1)
+    print('query_vecs.shape', query_vecs.shape)
+    
+    k_nearest = np.concatenate((k_nearest, query_vecs), axis=1)
+    print('k_nearest.shape', k_nearest.shape)
+    
+    query_vecs = np.sum(k_nearest, axis=1)
+    query_vecs = l2_normalize(query_vecs)
+    print('k_nearest.shape', k_nearest.shape)
+    
+    return query_vecs
     
     
     

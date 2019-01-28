@@ -54,7 +54,7 @@ def bind_model(model):
         
         print('type queries', type(queries)) # list of filenames
         print('queries[0]', queries[0])
-        print('type references', type(references)) # list of filanames
+        print('type references', type(references)) # list of filenames
         print('references[0]', references[0])
         print()
         print('len queries', len(queries))
@@ -75,17 +75,7 @@ def bind_model(model):
         indices = tree.query(query_vecs, k=1000, return_distance=False)
         
         # Query expansion
-        k_nearest = reference_vecs[indices[:,:5]] # (192, 5)
-        print('k_nearest.shape', k_nearest.shape)
-        query_vecs = np.expand_dims(query_vecs, axis=1)
-        print('query_vecs.shape', query_vecs.shape)
-        
-        k_nearest = np.concatenate((k_nearest, query_vecs), axis=1)
-        print('k_nearest.shape', k_nearest.shape)
-        
-        query_vecs = np.sum(k_nearest, axis=1)
-        query_vecs = l2_normalize(query_vecs)
-        print('k_nearest.shape', k_nearest.shape)
+        query_vecs = expand_query(query_vecs, reference_vecs, indices, 5)
         
         # Re-query
         indices = tree.query(query_vecs, k=1000, return_distance=False)
@@ -112,7 +102,7 @@ def infer_with_validation(queries, db, ground_truth, model):
     print('db.shape', db.shape)
     print('ground_truth.shape', ground_truth.shape)
     
-    layer_name = 'conv_pw_11_bn'
+    layer_name = 'block4_conv3'
     print('layer_name', layer_name)
     intermediate_layer_model = Model(inputs=model.input, 
             outputs=model.get_layer(layer_name).output)
@@ -153,10 +143,10 @@ def infer_with_validation(queries, db, ground_truth, model):
     print('shape of mac_sim_matrix:', mac_sim_matrix.shape)
     print('shape of rmac_sim_matrix:', rmac_sim_matrix.shape)
     
-    rmac_avg_precision = average_precision_score(ground_truth, 
-            rmac_sim_matrix, average='macro')
     mac_avg_precision = average_precision_score(ground_truth,
             mac_sim_matrix, average='macro')
+    rmac_avg_precision = average_precision_score(ground_truth, 
+            rmac_sim_matrix, average='macro')
     
     print('mac_avg_precision', mac_avg_precision)
     print('rmac_avg_precision:', rmac_avg_precision)
@@ -167,7 +157,7 @@ def get_feature(model, queries, db):
     img_size = (224, 224)
     test_path = DATASET_PATH + '/test/test_data'
 
-    intermediate_layer_model = Model(inputs=model.input, outputs=model.get_layer('global_max_pooling2d_1').output)
+    intermediate_layer_model = Model(inputs=model.input, outputs=model.get_layer('block4_conv3').output)
     
     test_datagen = ImageDataGenerator(rescale=1. / 255, dtype='float32')
     query_generator = test_datagen.flow_from_directory(
@@ -192,6 +182,12 @@ def get_feature(model, queries, db):
     )
     reference_vecs = intermediate_layer_model.predict_generator(reference_generator, steps=len(reference_generator),
                                                                 verbose=1)
+                                                                
+    combined_vecs = np.concatenate((query_vecs, reference_vecs), axis=0)
+    # RMAC
+    combined_vecs = calculate_rmac(combined_vecs, L=3, pca=None)
+    query_vecs = combined_vecs[:query_vecs.shape[0]]
+    reference_vecs = combined_vecs[query_vecs.shape[0]:]
     
     return queries, query_vecs, db, reference_vecs
 
@@ -219,8 +215,8 @@ if __name__ == '__main__':
 
     """ Model """
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
-    # base_model = VGG16(weights='imagenet', include_top=False)
+    # base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
+    base_model = VGG16(weights='imagenet', include_top=False)
     # base_model = VGG19(weights='imagenet', include_top=False)
     base_model.summary()
 
