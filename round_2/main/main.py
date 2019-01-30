@@ -14,7 +14,7 @@ from nsml import DATASET_PATH
 import keras
 from keras.models import Sequential, Model
 from keras.layers import Dense, Dropout, Flatten, Activation
-from keras.layers import Conv2D, MaxPooling2D
+from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D
 from keras.callbacks import ReduceLROnPlateau
 from keras.preprocessing.image import ImageDataGenerator
 
@@ -121,18 +121,19 @@ if __name__ == '__main__':
 
     """ Model """
     # Pretrained model
-    base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
+    base_model = MobileNet(weights='imagenet', include_top=False)
     base_model.summary()
 
     x = base_model.output
     
     # x = GlobalMaxPooling2D()(x)
-    
+    x = Dense(2000, activation='relu')(x)
+    x = GlobalMaxPooling2D()(x)
     x = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=base_model.input, outputs=x)
     
-    for layer in model.layers[:-1]:
+    for layer in model.layers[:-8]:
         layer.trainable = False # Don't train initial pretrained weights
         
     model.summary()
