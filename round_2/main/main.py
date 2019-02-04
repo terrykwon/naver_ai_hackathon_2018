@@ -19,7 +19,7 @@ from keras.layers import Conv2D, MaxPooling2D, GlobalMaxPooling2D
 from keras.callbacks import ReduceLROnPlateau
 from keras.preprocessing.image import ImageDataGenerator
 
-# from keras.applications import MobileNet
+from keras.applications import MobileNet
 from keras.applications.vgg16 import VGG16
 # from keras.applications import VGG19
 from utils import *
@@ -62,9 +62,15 @@ def bind_model(model):
         print('len references', len(references))
         print('reference_vecs.shape', reference_vecs.shape)
 
-        # l2 normalization
-        query_vecs = l2_normalize(query_vecs)
-        reference_vecs = l2_normalize(reference_vecs)
+        num_queries = query_vecs.shape[0]
+        num_references = reference_vecs.shape[0]
+        # MAC
+        combined_vecs = np.concatenate((query_vecs, reference_vecs), axis=0)
+    
+        # Calculate MACs in order to fit PCA weights
+        combined_macs = calculate_mac(combined_vecs)
+        query_vecs = combined_macs[:num_queries]
+        reference_vecs = combined_macs[num_queries:]
 
         # Calculate cosine similarity
         # sim_matrix = np.dot(query_vecs, reference_vecs.T)
@@ -167,7 +173,7 @@ def get_feature(model, queries, db):
     img_size = (224, 224)
     test_path = DATASET_PATH + '/test/test_data'
 
-    intermediate_layer_model = Model(inputs=model.input, outputs=model.get_layer('global_max_pooling2d_1').output)
+    intermediate_layer_model = Model(inputs=model.input, outputs=model.get_layer('conv_pw_13_bn').output)
     
     test_datagen = ImageDataGenerator(rescale=1. / 255, dtype='float32')
     query_generator = test_datagen.flow_from_directory(
@@ -229,13 +235,14 @@ if __name__ == '__main__':
     # x = Dense(2000, activation='relu')(x)
     # x = GlobalMaxPooling2D()(x)
 
-    base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
+    base_model = MobileNet(input_shape=input_shape, weights='imagenet', include_top=False)
     # base_model = VGG16(weights='imagenet', include_top=False)
     # base_model = VGG19(weights='imagenet', include_top=False)
     base_model.summary()
 
     x = base_model.output
-
+    x = Dense(2000, activation='relu')(x)
+    x = GlobalMaxPooling2D()(x)
     x = Dense(num_classes, activation='softmax')(x)
     model = Model(inputs=base_model.input, outputs=x)
     
