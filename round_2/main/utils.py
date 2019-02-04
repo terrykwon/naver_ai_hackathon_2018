@@ -32,6 +32,8 @@ def generate_queries_and_refs(images, labels, label_binarizer=None):
     label_image_dict = defaultdict(list)
 
     label_counts = Counter(labels)
+    
+    print('The 10 most common labels:')
     print(label_counts.most_common(10))
 
     if label_binarizer == None:
@@ -83,8 +85,8 @@ def global_sum_pool_2d(v):
     return v_reduced
 
 
-def pca_whiten(m):
-    pca = PCA(whiten=True)
+def pca_whiten(m, n_components=None):
+    pca = PCA(n_components=n_components, whiten=True)
     whitened = pca.fit_transform(m)
     return whitened
 
@@ -96,7 +98,7 @@ def l2_normalize(v):
     return v / norm
     
 
-def calculate_mac(feature_vecs):
+def calculate_mac(feature_vecs, pca=None):
     ''' Maximum Activations of Convolutions
         i.e.) a spatial max-pool
 
@@ -108,13 +110,15 @@ def calculate_mac(feature_vecs):
     ''' 
     result = global_max_pool_2d(feature_vecs) # Outputs (batch_size, num_channels)
     result = l2_normalize(result)
-    result = pca_whiten(result)
-    result = l2_normalize(result)
+    
+    if pca:
+        result = pca.transform(result)
+        result = l2_normalize(result)
 
-    return feature_vecs
+    return result
     
     
-def calculate_rmac(conv_maps, L=3):
+def calculate_rmac(conv_maps, L=3, pca=None):
     ''' Regional Maximum Activation of Convolutions
         
         # Arguments:
@@ -140,7 +144,7 @@ def calculate_rmac(conv_maps, L=3):
                            height_start:height_end,
                            :]
                            
-        mac = calculate_mac(sliced)
+        mac = calculate_mac(sliced, pca=pca)
         mac_list.append(mac)
         
     mac_list = np.asarray(mac_list) # (num_regions, batch_size, channels)
@@ -195,4 +199,10 @@ def get_rmac_regions(W, H, L):
 
     regions = np.asarray(regions)
     return regions
+    
+    
+def expand_query(query_vecs, reference_vecs, indices):
+    pass
+    
+    
     

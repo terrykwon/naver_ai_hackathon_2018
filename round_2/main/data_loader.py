@@ -8,7 +8,7 @@ import cv2
 import pickle
 
 
-def train_data_loader(data_path, img_size, output_path):
+def train_data_loader(data_path, img_size, output_path, num_samples=None):
     # Can the entire dataset fit in memory in img_list?
     # Should consider splitting it.
     label_list = []
@@ -16,7 +16,7 @@ def train_data_loader(data_path, img_size, output_path):
     label_idx = 0
     
     # DEBUG
-    # file_count = 0
+    file_count = 0
 
     for root, dirs, files in os.walk(data_path):
         if not files:
@@ -33,9 +33,9 @@ def train_data_loader(data_path, img_size, output_path):
             img_list.append(img)
             
             # DEBUG
-            # file_count += 1
-            # if file_count > 2000:
-            #     break
+            file_count += 1
+            if num_samples is not None and file_count > num_samples:
+                break
             
         label_idx += 1
 
