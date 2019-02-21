@@ -90,13 +90,16 @@ def pca_whiten(m, n_components=None):
     whitened = pca.fit_transform(m)
     return whitened
 
-
+def l2_normalize(v):
+    norm = np.linalg.norm(v, axis=1, keepdims=True)
+    return np.divide(v, norm, where=norm!=0)  # only divide nonzeros else 1
+'''
 def l2_normalize(v):
     norm = np.linalg.norm(v)
     if norm == 0:
         return v
     return v / norm
-    
+'''    
 
 def calculate_mac(feature_vecs, pca=None):
     ''' Maximum Activations of Convolutions
@@ -129,7 +132,7 @@ def calculate_rmac(conv_maps, L=3, pca=None):
         # Returns:
             rmac_vector (batch_size, num_channels)
     '''
-    rmac_regions = get_rmac_regions(L, conv_maps.shape[1], conv_maps.shape[2])
+    rmac_regions = get_rmac_regions(conv_maps.shape[1], conv_maps.shape[2], L)
     
     mac_list = []
         

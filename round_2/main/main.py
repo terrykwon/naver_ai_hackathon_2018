@@ -69,9 +69,13 @@ def bind_model(model):
     
         # Calculate MACs in order to fit PCA weights
         combined_macs = calculate_mac(combined_vecs)
-        query_vecs = combined_macs[:num_queries]
-        reference_vecs = combined_macs[num_queries:]
+        #query_vecs = combined_macs[:num_queries]
+        #reference_vecs = combined_macs[num_queries:]
 
+        combined_rmacs = calculate_rmac(combined_vecs, L=3)
+        query_vecs = combined_rmacs[:num_queries]
+        reference_vecs = combined_rmacs[num_queries:]
+        
         # Calculate cosine similarity
         # sim_matrix = np.dot(query_vecs, reference_vecs.T)
         # indices = np.argsort(sim_matrix, axis=1)
@@ -118,7 +122,7 @@ def infer_with_validation(queries, db, ground_truth, model):
     print('db.shape', db.shape)
     print('ground_truth.shape', ground_truth.shape)
     
-    layer_name = 'conv_pw_11_bn'
+    layer_name = 'conv_pw_13_bn'
     print('layer_name', layer_name)
     intermediate_layer_model = Model(inputs=model.input, 
             outputs=model.get_layer(layer_name).output)
@@ -246,7 +250,7 @@ if __name__ == '__main__':
     x = Dense(num_classes, activation='softmax')(x)
     model = Model(inputs=base_model.input, outputs=x)
     
-    for layer in model.layers[:-8]:
+    for layer in model.layers[:-6]:
         layer.trainable = False # Don't train initial pretrained weights
         
     model.summary()
