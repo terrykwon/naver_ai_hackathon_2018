@@ -75,27 +75,30 @@ def bind_model(model):
         # tree = BallTree(reference_vecs, metric='euclidean')
         # indices = tree.query(query_vecs, k=1000, return_distance=False)
         
-        # Query expansion
-        # k_nearest = reference_vecs[indices[:,:5]] # (192, 5)
+        """ Query expansion """
+        k_nearest = reference_vecs[indices[:,:5]] # (192, 5)
         # print('k_nearest.shape', k_nearest.shape)
-        # query_vecs = np.expand_dims(query_vecs, axis=1)
+        query_vecs = np.expand_dims(query_vecs, axis=1)
         # print('query_vecs.shape', query_vecs.shape)
         
-        # k_nearest = np.concatenate((k_nearest, query_vecs), axis=1)
+        k_nearest = np.concatenate((k_nearest, query_vecs), axis=1)
         # print('k_nearest.shape', k_nearest.shape)
         
-        # query_vecs = np.sum(k_nearest, axis=1)
-        # query_vecs = l2_normalize(query_vecs)
+        query_vecs = np.sum(k_nearest, axis=1)
+        query_vecs = l2_normalize(query_vecs)
         # print('k_nearest.shape', k_nearest.shape)
         
         # Re-query
         # indices = tree.query(query_vecs, k=1000, return_distance=False)
+        sim_matrix = np.dot(query_vecs, reference_vecs.T)
+        indices = np.argsort(sim_matrix, axis=1)
+        indices = np.flip(indices, axis=1)
 
         retrieval_results = {}
 
         for (i, query) in enumerate(queries):
             ranked_list = [references[k] for k in indices[i]]
-            print('len ranked_list', len(ranked_list))
+            # print('len ranked_list', len(ranked_list))
             if len(ranked_list) >= 1000:
                 ranked_list = ranked_list[:1000]
             retrieval_results[query] = ranked_list
@@ -228,7 +231,9 @@ if __name__ == '__main__':
     """ Model """
     # Pretrained model
     # base_model = MobileNet(weights='imagenet', include_top=False, pooling='max')
-    base_model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)
+    # base_model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)
+    base_model = ResNet50(weights=None, include_top=False, input_shape=input_shape)
+
     # base_model = VGG16(weights='imagenet', include_top=False)
     # base_model = VGG19(weights='imagenet', include_top=False)
     print('-------------------------- Base model ---------------------------')
@@ -254,6 +259,11 @@ if __name__ == '__main__':
     bTrainmode = False
     if config.mode == 'train':
         bTrainmode = True
+
+        # 이 자리에 3줄의 load/save 소스코드가 들어갑니다.
+        nsml.load(checkpoint='5', session='FindingNeModel/ir_ph2/99')
+        nsml.save('saved')
+        # exit()
 
         """ Initiate RMSprop optimizer """
         opt = keras.optimizers.rmsprop(lr=0.00045, decay=1e-6)
